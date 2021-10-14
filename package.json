@@ -1,0 +1,17 @@
+{
+  "name": "in-depth-analysis-of-react",
+  "version": "1.0.0",
+  "description": "",
+  "main": "react/handle-react-umd.js",
+  "type": "module",
+  "scripts": {
+    "build": "rollup -c rollup.config.js"
+  },
+  "author": "galen",
+  "license": "ISC",
+  "sideEffects": false,
+  "devDependencies": {
+    "rollup": "^2.58.0",
+    "rollup-plugin-terser": "^7.0.2"
+  }
+}

@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="UTF-8" />
+  <title>Add React in One Minute</title>
+  <script src="./build/react/react-umd.js"></script>
+  <!-- <script src="./backup/react-prod-basic.js"></script> -->
+  <script src="./build/reactdom/reactdom-umd.js"></script>
+  <script src="./babel.min.js"></script>
+</head>
+
+<body>
+
+  <h2>Add React in One Minute</h2>
+  <p>This page demonstrates using React with no build tooling.</p>
+  <p>React is loaded as a script tag.</p>
+
+  <div id="like_button_container"></div>
+
+  <script type="text/babel">
+    const { createElement, useState, StrictMode } = React;
+
+    class ClassButton extends React.Component {
+      constructor(props) {
+        super(props);
+        this.state = { liked: false };
+      }
+
+      render() {
+        if (this.state.liked) return 'You liked this.';
+
+        return <button onClick={() => this.setState({ liked: true })}>
+          LIKE
+        </button>;
+      }
+    }
+
+
+    function LikeButton() {
+      const [count, setCount] = useState(0);
+      const arr = ['one', 'two', 'three'];
+
+      return <div onClick={() => setCount((count) => count + 1)}>
+        <StrictMode>
+          Like {count}
+          <br />
+          <ClassButton />
+          <ul>
+            {
+              arr.map(item => <li key ={item}>{item}</li>)
+            }
+          </ul>
+        </StrictMode>
+      </div>
+    }
+
+
+    const domContainer = document.querySelector('#like_button_container');
+
+    ReactDOM.render(<LikeButton />, domContainer);
+  </script>
+</body>
+
+</html>
