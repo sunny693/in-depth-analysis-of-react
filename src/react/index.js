@@ -1,5 +1,4 @@
 import {
-  ownProperty,
   escapeUserProvidedKey,
   formatProdErrorMessage,
   getElementKey,
@@ -15,8 +14,8 @@ import {
   REACT_LAZY_TYPE,
   getIteratorFn,
 } from './../shared/ReactSymbols';
-export {version} from './../shared/version';
-export {
+import { version } from './../shared/version';
+import {
   Fragment,
   StrictMode,
   Profiler,
@@ -24,20 +23,20 @@ export {
   createRef,
   forwardRef,
 } from './identity-direct-export';
+import { isValidElement } from './isValidElement';
+import {
+  createElement,
+  cloneElement,
+  createFactory,
+  ReactCurrentOwner,
+} from './ReactElement';
 
-const RESERVED_PROPS = {
-  key: true,
-  ref: true,
-  __self: true,
-  __source: true
-};
 const ReactNoopUpdateQueue = {
   isMounted: function (a) { return false },
   enqueueForceUpdate: function (a, b, c) { },
   enqueueReplaceState: function (a, b, c, d) { },
   enqueueSetState: function (a, b, c, d) { }
 };
-const ReactCurrentOwner = { current: null };
 const ReactCurrentDispatcher = { current: null };
 
 let requestPaint;
@@ -56,53 +55,6 @@ let requestHostTimeout;
 let cancelHostTimeout;
 let shouldYieldToHost;
 
-function createElementWithValidation(type, config, children) {
-  let propName;
-  let props = {};
-  let key = null;
-  let ref = null;
-
-  if (config != null) {
-    if (config.key !== undefined) ref = config.ref || null;
-    if (config.key !== undefined) key = "" + config.key;
-
-    for (propName in config) {
-      if (ownProperty(config, propName) && !RESERVED_PROPS.hasOwnProperty(propName)) props[propName] = config[propName];
-    };
-  }
-
-  const childrenLength = arguments.length - 2;
-
-  if (childrenLength === 1) {
-    props.children = children;
-  } else if (childrenLength > 1) {
-    const childArray = Array(childrenLength);
-
-    for (let i = 0; i < childrenLength; i++) childArray[i] = arguments[i + 2];
-
-    props.children = childArray;
-  }
-
-  if (type && type.defaultProps) {
-    const defaultProps = type.defaultProps;
-
-    for (propName in defaultProps) {
-      if (props[propName] === undefined) {
-        props[propName] = defaultProps[propName];
-      }
-    };
-  }
-
-  return {
-    $$typeof: REACT_ELEMENT_TYPE,
-    type,
-    key,
-    ref,
-    props,
-    _owner: ReactCurrentOwner.current
-  }
-}
-
 function cloneAndReplaceKey(oldElement, newKey) {
   return {
     $$typeof: REACT_ELEMENT_TYPE,
@@ -112,12 +64,6 @@ function cloneAndReplaceKey(oldElement, newKey) {
     props: oldElement.props,
     _owner: oldElement._owner
   }
-}
-
-export function isValidElement(object) {
-  return typeof object === "object" &&
-    object !== null &&
-    object.$$typeof === REACT_ELEMENT_TYPE
 }
 
 function mapIntoArray(children, array, escapedPrefix, nameSoFar, callback) {
@@ -772,6 +718,7 @@ const ReactSharedInternals$1 = {
     unstable_unsubscribe: function (subscriber) { }
   }
 };
+
 export const Children = {
   map: mapChildren,
   forEach: function (children, forEachFunc, forEachContext) {
@@ -797,60 +744,6 @@ export const Children = {
 };
 
 export const __SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED = ReactSharedInternals$1;
-export const cloneElement = function (element, config, children) {
-  if (element === null || element === undefined) throw Error(formatProdErrorMessage(267, element));
-
-  let propName;
-  const props = Object.assign({}, element.props);
-  let { key, ref, _owner, } = element;
-
-  if (config != null) {
-    if (config.key !== undefined) {
-      ref = config.ref;
-      _owner = ReactCurrentOwner.current;
-    };
-
-    if (config.key !== undefined) {
-      key = "" + config.key;
-    };
-
-    let defaultProps;
-    if (element.type && element.type.defaultProps) {
-      defaultProps = element.type.defaultProps;
-    }
-
-    for (propName in config) {
-      if (ownProperty(config, propName) && !RESERVED_PROPS.hasOwnProperty(propName)) {
-        if (config[propName] === undefined && defaultProps !== undefined) {
-          props[propName] = defaultProps[propName];
-        } else {
-          props[propName] = config[propName];
-        }
-      }
-    }
-  }
-
-  const childrenLength = arguments.length - 2;
-  if (childrenLength === 1) {
-    props.children = children;
-  } else if (childrenLength > 1) {
-    const childArray = Array(childrenLength);
-
-    for (let i = 0; i < childrenLength; i++) {
-      childArray[i] = arguments[i + 2];
-    }
-    props.children = childArray;
-  };
-
-  return {
-    $$typeof: REACT_ELEMENT_TYPE,
-    type: element.type,
-    key,
-    ref,
-    props,
-    _owner
-  }
-};
 
 //createContext Path: react\packages\react\src\ReactContext.js
 export const createContext = function (defaultValue, calculateChangedBits) {
@@ -874,14 +767,6 @@ export const createContext = function (defaultValue, calculateChangedBits) {
   context.Consumer = context;
 
   return context;
-};
-
-export const createElement = createElementWithValidation;
-export const createFactory = function (type) {
-  let validatedFactory = createElementWithValidation.bind(null, type);
-  validatedFactory.type = type;
-
-  return validatedFactory;
 };
 
 export const lazy = function (ctor) {
@@ -911,3 +796,17 @@ export const useMemo = function (create, deps) { return resolveDispatcher().useM
 export const useReducer = function (reducer, initialArg, init) { return resolveDispatcher().useReducer(reducer, initialArg, init) };
 export const useRef = function (initialValue) { return resolveDispatcher().useRef(initialValue) };
 export const useState = function (initialState) { return resolveDispatcher().useState(initialState) };
+
+export {
+  Fragment,
+  StrictMode,
+  Profiler,
+  Suspense,
+  createRef,
+  forwardRef,
+  isValidElement,
+  createElement,
+  cloneElement,
+  createFactory,
+  version,
+};
