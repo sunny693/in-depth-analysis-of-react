@@ -17,9 +17,10 @@
   <p>React is loaded as a script tag.</p>
 
   <div id="like_button_container"></div>
-
+  
+  <!-- https://codepen.io/nickljudy/pen/bGrErLR?editors=0010 -->
   <script type="text/babel">
-    const { createElement, useState, StrictMode } = React;
+    const { createElement,cloneElement, useState, StrictMode } = React;
 
     class ClassButton extends React.Component {
       constructor(props) {
@@ -36,21 +37,43 @@
       }
     }
 
+    function TestCreateEle() {
+      const [count, setCount] = useState(0);
+
+      return createElement(
+        'div',
+        {
+          onClick: () => setCount((count) => count + 1)
+        },
+        [
+          `LIKE ${count}`,
+          createElement(ClassButton, null, null),
+          [
+          `LIKE ${count}`,
+          '123----'
+          ]
+      ],
+        123456789
+      )
+    }
 
     function LikeButton() {
       const [count, setCount] = useState(0);
       const arr = ['one', 'two', 'three'];
+      const CloneE = cloneElement(<TestCreateEle />,{prop:1},1);
 
       return <div onClick={() => setCount((count) => count + 1)}>
         <StrictMode>
+          <TestCreateEle /><br/>
           Like {count}
           <br />
           <ClassButton />
           <ul>
             {
-              arr.map(item => <li key ={item}>{item}</li>)
+              arr.map(item => <li key={item}>{item}</li>)
             }
           </ul>
+          {  CloneE }
         </StrictMode>
       </div>
     }

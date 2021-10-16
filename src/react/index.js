@@ -23,12 +23,12 @@ import {
   createRef,
   forwardRef,
 } from './identity-direct-export';
-import { isValidElement } from './isValidElement';
 import {
   createElement,
   cloneElement,
   createFactory,
   ReactCurrentOwner,
+  isValidElement,
 } from './ReactElement';
 
 const ReactNoopUpdateQueue = {
@@ -779,6 +779,7 @@ export const lazy = function (ctor) {
     _init: lazyInitializer
   }
 };
+
 export const memo = function (type, compare) {
   return {
     $$typeof: REACT_MEMO_TYPE,
@@ -786,6 +787,7 @@ export const memo = function (type, compare) {
     compare: compare === undefined ? null : compare
   }
 };
+
 export const useCallback = function (callback, deps) { return resolveDispatcher().useCallback(callback, deps) };
 export const useContext = function (Context, unstable_observedBits) { return resolveDispatcher().useContext(Context, unstable_observedBits) };
 export const useDebugValue = function (a, b) { };
