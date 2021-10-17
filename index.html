@@ -17,22 +17,24 @@
   <p>React is loaded as a script tag.</p>
 
   <div id="like_button_container"></div>
-  
+
   <!-- https://codepen.io/nickljudy/pen/bGrErLR?editors=0010 -->
   <script type="text/babel">
-    const { createElement,cloneElement, useState, StrictMode } = React;
+    const { createElement, cloneElement, useState, StrictMode } = React;
 
     class ClassButton extends React.Component {
-      constructor(props) {
+      constructor(props,context,updater) {
         super(props);
         this.state = { liked: false };
       }
 
       render() {
-        if (this.state.liked) return 'You liked this.';
+        const {children} = this.props;
+        // if (this.state.liked) return 'You liked this.';
 
-        return <button onClick={() => this.setState({ liked: true })}>
-          LIKE
+        return <button onClick={() => this.setState(kk =>{ kk.liked = !kk.liked; } )}>
+          LIKE{children}---console
+          {String(this.state.liked)}
         </button>;
       }
     }
@@ -49,31 +51,36 @@
           `LIKE ${count}`,
           createElement(ClassButton, null, null),
           [
-          `LIKE ${count}`,
-          '123----'
+            `LIKE ${count}`,
+            '123----'
           ]
-      ],
+        ],
         123456789
       )
+    }
+
+    function UlEle({ children }) {
+      const CloneE = cloneElement(<UlEle />,{prop:1},1);
+      return <ul>
+        <children/>
+      </ul>
     }
 
     function LikeButton() {
       const [count, setCount] = useState(0);
       const arr = ['one', 'two', 'three'];
-      const CloneE = cloneElement(<TestCreateEle />,{prop:1},1);
 
       return <div onClick={() => setCount((count) => count + 1)}>
         <StrictMode>
-          <TestCreateEle /><br/>
+          <TestCreateEle /><br />
           Like {count}
           <br />
-          <ClassButton />
-          <ul>
-            {
-              arr.map(item => <li key={item}>{item}</li>)
-            }
-          </ul>
-          {  CloneE }
+          <ClassButton  prop1 prop2={'a'}>
+            childkkk  
+          </ClassButton>
+          <UlEle>
+            <li>123</li>
+          </UlEle>
         </StrictMode>
       </div>
     }

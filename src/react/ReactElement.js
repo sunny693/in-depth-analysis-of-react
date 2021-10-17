@@ -115,11 +115,24 @@ function isValidElement(object) {
   return typeof object === "object" &&
     object !== null &&
     object.$$typeof === REACT_ELEMENT_TYPE
-}
+};
+
+function cloneAndReplaceKey(oldElement, newKey) {
+  return {
+    $$typeof: REACT_ELEMENT_TYPE,
+    type: oldElement.type,
+    key: newKey,
+    ref: oldElement.ref,
+    props: oldElement.props,
+    _owner: oldElement._owner
+  }
+};
+
 export {
   ReactCurrentOwner,
   cloneElement,
   createElement,
   createFactory,
   isValidElement,
+  cloneAndReplaceKey,
 }

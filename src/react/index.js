@@ -6,16 +6,6 @@ import {
   getCurrentTime,
 } from './../utils/index';
 import {
-  REACT_ELEMENT_TYPE,
-  REACT_PORTAL_TYPE,
-  REACT_PROVIDER_TYPE,
-  REACT_CONTEXT_TYPE,
-  REACT_MEMO_TYPE,
-  REACT_LAZY_TYPE,
-  getIteratorFn,
-} from './../shared/ReactSymbols';
-import { version } from './../shared/version';
-import {
   Fragment,
   StrictMode,
   Profiler,
@@ -30,14 +20,25 @@ import {
   ReactCurrentOwner,
   isValidElement,
 } from './ReactElement';
-
-const ReactNoopUpdateQueue = {
-  isMounted: function (a) { return false },
-  enqueueForceUpdate: function (a, b, c) { },
-  enqueueReplaceState: function (a, b, c, d) { },
-  enqueueSetState: function (a, b, c, d) { }
-};
-const ReactCurrentDispatcher = { current: null };
+import { createContext } from './ReactContext';
+import { Children } from './ReactChildren';
+import { Component, PureComponent } from './ReactBaseClasses';
+import { ReactCurrentDispatcher } from './ReactCurrentDispatcher';
+import {
+  useCallback,
+  useContext,
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+  useDebugValue,
+} from './ReactHooks';
+import { lazy } from './ReactLazy';
+import { memo } from './ReactMemo';
+import { version } from './../shared/version';
 
 let requestPaint;
 let forceFrameRate;
@@ -49,168 +50,10 @@ let currentPriorityLevel = 3;
 let isPerformingWork = false;
 let isHostCallbackScheduled = false;
 let isHostTimeoutScheduled = false;
-let threadIDCounter = 0;
 let requestHostCallback;
 let requestHostTimeout;
 let cancelHostTimeout;
 let shouldYieldToHost;
-
-function cloneAndReplaceKey(oldElement, newKey) {
-  return {
-    $$typeof: REACT_ELEMENT_TYPE,
-    type: oldElement.type,
-    key: newKey,
-    ref: oldElement.ref,
-    props: oldElement.props,
-    _owner: oldElement._owner
-  }
-}
-
-function mapIntoArray(children, array, escapedPrefix, nameSoFar, callback) {
-  let type = typeof children;
-
-  if (type === 'undefined' || type === 'boolean') children = null;
-
-  let invokeCallback = false;
-
-  if (children === null) {
-    invokeCallback = true;
-  } else {
-    switch (type) {
-      case "string":
-      case "number":
-        invokeCallback = true;
-        break;
-      case "object":
-        switch (children.$$typeof) {
-          case REACT_ELEMENT_TYPE:
-          case REACT_PORTAL_TYPE:
-            invokeCallback = true;
-        }
-    }
-  }
-
-  if (invokeCallback) {
-    const _child = children;
-    let mappedChild = callback(_child);
-    const childKey = nameSoFar === '' ? '.' + getElementKey(_child, 0) : nameSoFar;
-
-    if (Array.isArray(mappedChild)) {
-      let escapedChildKey = '';
-
-      if (childKey != null) escapedChildKey = escapeUserProvidedKey(childKey) + '/';
-
-      mapIntoArray(mappedChild, array, escapedChildKey, '', c => c);
-    } else if (mappedChild != null) {
-      if (isValidElement(mappedChild)) {
-        mappedChild = cloneAndReplaceKey(
-          mappedChild,
-          escapedPrefix + (mappedChild.key && (!_child || _child.key !== mappedChild.key) ? escapeUserProvidedKey('' + mappedChild.key) + '/' : '') + childKey)
-      }
-
-      array.push(mappedChild);
-    }
-
-    return 1;
-  };
-
-  let child;
-  let nextName;
-  let subtreeCount = 0;
-  const nextNamePrefix = (nameSoFar === '' ? "." : nameSoFar + ":");
-
-  if (Array.isArray(children)) {
-    for (let i = 0; i < children.length; i++) {
-      child = children[i];
-      nextName = nextNamePrefix + getElementKey(child, i);
-      subtreeCount += mapIntoArray(child, array, escapedPrefix, nextName, callback);
-    }
-  } else {
-    const iteratorFn = getIteratorFn(children);
-
-    if (typeof iteratorFn === 'function') {
-      const iterator = iteratorFn.call(children);
-      let step;
-      let ii = 0;
-
-      while (!(step = iterator.next()).done) {
-        child = step.value;
-        nextName = nextNamePrefix + getElementKey(child, ii++);
-        subtreeCount += mapIntoArray(child, array, escapedPrefix, nextName, callback);
-      }
-
-    } else if (child === "object") {
-      const childrenString = "" + children;
-
-      throw Error(
-        formatProdErrorMessage(
-          31,
-          childrenString === "[object Object]" ?
-            "object with keys {" + Object.keys(children).join(", ") + "}" :
-            childrenString
-        )
-      );
-    }
-  };
-
-  return subtreeCount;
-}
-
-function mapChildren(children, func, context) {
-  if (children == null) return children;
-
-  let result = [];
-  let count = 0;
-
-  mapIntoArray(children, result, "", "", function (child) {
-    return func.call(context, child, count++)
-  });
-
-  return result
-}
-
-function lazyInitializer(payload) {
-  const Uninitialized = -1;
-  const Pending = 0;
-  const Resolved = 1;
-  const Rejected = 2;
-
-  if (payload._status === Uninitialized) {
-    const ctor = payload._result;
-    const thenable = ctor();
-
-    payload._status = Pending;
-    payload._result = thenable;
-
-    thenable.then(function (moduleObject) {
-      if (payload._status === Pending) {
-        const defaultExport = moduleObject.default;
-
-        if (defaultExport === undefined) console.error('lazy: Expected the result of a dynamic import() call. Instead received: %s\n\nYour code should look like: \n  const MyComponent = lazy(() => imp' + "ort('./MyComponent'))", moduleObject);
-
-        payload._status = Resolved;
-        payload._result = defaultExport;
-      }
-    }, function (error) {
-      if (payload._status === Pending) {
-        payload._status = Rejected;
-        payload._result = error;
-      };
-    })
-  }
-
-  if (payload._status === Resolved) return payload._result;
-
-  throw payload._result;
-};
-
-function resolveDispatcher() {
-  const dispatcher = ReactCurrentDispatcher.current;
-
-  if (dispatcher === null) throw Error(formatProdErrorMessage(321));
-
-  return dispatcher;
-}
 
 function push(heap, node) {
   const index = heap.length;
@@ -375,39 +218,6 @@ function flushWork(hasTimeRemaining, initialTime) {
   }
 };
 
-const emptyObject = {};
-export function Component(props, context, updater) {
-  this.props = props;
-  this.context = context;
-  this.refs = emptyObject;
-  this.updater = updater || ReactNoopUpdateQueue
-}
-
-export function PureComponent(props, context, updater) {
-  this.props = props;
-  this.context = context;
-  this.refs = emptyObject;
-  this.updater = updater || ReactNoopUpdateQueue
-}
-Component.prototype.isReactComponent = {};
-Component.prototype.setState = function (partialState, callback) {
-  if ("object" !== typeof partialState && "function" !== typeof partialState && null != partialState) throw Error(formatProdErrorMessage(85));
-
-  this.updater.enqueueSetState(this, partialState, callback, "setState")
-};
-Component.prototype.forceUpdate = function (callback) {
-  this.updater.enqueueForceUpdate(this, callback, "forceUpdate")
-};
-
-function ComponentDummy() { };
-ComponentDummy.prototype = Component.prototype;
-
-PureComponent.prototype = new ComponentDummy;
-const pureComponentPrototype = PureComponent.prototype;
-pureComponentPrototype.constructor = PureComponent;
-Object.assign(pureComponentPrototype, Component.prototype);
-pureComponentPrototype.isPureReactComponent = true;
-
 if (typeof window === "undefined" || typeof MessageChannel !== "function") {
   let _callback = null;
   let _timeoutID = null;
@@ -531,16 +341,13 @@ if (typeof window === "undefined" || typeof MessageChannel !== "function") {
   };
 };
 
-const ReactSharedInternals$1 = {
+export const __SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED = {
+  assign: Object.assign,
   ReactCurrentDispatcher,
   ReactCurrentOwner,
-  IsSomeRendererActing: {
-    current: false
-  },
   ReactCurrentBatchConfig: {
     transition: 0
   },
-  assign: Object.assign,
   Scheduler: {
     __proto__: null,
     unstable_ImmediatePriority: 1,
@@ -694,121 +501,35 @@ const ReactSharedInternals$1 = {
       return forceFrameRate
     },
     unstable_Profiling: null
-  },
-  SchedulerTracing: {
-    __proto__: null,
-    __interactionsRef: null,
-    __subscriberRef: null,
-    unstable_clear: function (callback) {
-      return callback()
-    },
-    unstable_getCurrent: function () {
-      return null
-    },
-    unstable_getThreadID: function () {
-      return ++threadIDCounter;
-    },
-    unstable_trace: function (name, timestamp, callback) {
-      return callback()
-    },
-    unstable_wrap: function (callback) {
-      return callback;
-    },
-    unstable_subscribe: function (subscriber) { },
-    unstable_unsubscribe: function (subscriber) { }
   }
 };
-
-export const Children = {
-  map: mapChildren,
-  forEach: function (children, forEachFunc, forEachContext) {
-    mapChildren(children, function () {
-      forEachFunc.apply(this, arguments)
-    }, forEachContext);
-  },
-  count: function (children) {
-    let n = 0;
-
-    mapChildren(children, function () { n++; });
-
-    return n;
-  },
-  toArray: function (children) {
-    return mapChildren(children, child => child) || [];
-  },
-  only: function (children) {
-    if (!isValidElement(children)) throw Error(formatProdErrorMessage(143));
-
-    return children;
-  }
-};
-
-export const __SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED = ReactSharedInternals$1;
-
-//createContext Path: react\packages\react\src\ReactContext.js
-export const createContext = function (defaultValue, calculateChangedBits) {
-  if (calculateChangedBits === undefined) calculateChangedBits = null;
-
-  const context = {
-    $$typeof: REACT_CONTEXT_TYPE,
-    _calculateChangedBits: calculateChangedBits,
-    _currentValue: defaultValue,
-    _currentValue2: defaultValue,
-    _threadCount: 0,
-    Provider: null,
-    Consumer: null,
-  };
-
-  context.Provider = {
-    $$typeof: REACT_PROVIDER_TYPE,
-    _context: context,
-  };
-
-  context.Consumer = context;
-
-  return context;
-};
-
-export const lazy = function (ctor) {
-  return {
-    $$typeof: REACT_LAZY_TYPE,
-    _payload: {
-      _status: -1,
-      _result: ctor
-    },
-    _init: lazyInitializer
-  }
-};
-
-export const memo = function (type, compare) {
-  return {
-    $$typeof: REACT_MEMO_TYPE,
-    type,
-    compare: compare === undefined ? null : compare
-  }
-};
-
-export const useCallback = function (callback, deps) { return resolveDispatcher().useCallback(callback, deps) };
-export const useContext = function (Context, unstable_observedBits) { return resolveDispatcher().useContext(Context, unstable_observedBits) };
-export const useDebugValue = function (a, b) { };
-export const useEffect = function (create, deps) { return resolveDispatcher().useEffect(create, deps) };
-export const useImperativeHandle = function (ref, create, deps) { return resolveDispatcher().useImperativeHandle(ref, create, deps) };
-export const useLayoutEffect = function (create, deps) { return resolveDispatcher().useLayoutEffect(create, deps) };
-export const useMemo = function (create, deps) { return resolveDispatcher().useMemo(create, deps) };
-export const useReducer = function (reducer, initialArg, init) { return resolveDispatcher().useReducer(reducer, initialArg, init) };
-export const useRef = function (initialValue) { return resolveDispatcher().useRef(initialValue) };
-export const useState = function (initialState) { return resolveDispatcher().useState(initialState) };
 
 export {
   Fragment,
   StrictMode,
   Profiler,
   Suspense,
+  Component,
+  PureComponent,
+  createContext,
   createRef,
   forwardRef,
   isValidElement,
   createElement,
   cloneElement,
   createFactory,
+  Children,
+  useCallback,
+  useContext,
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+  useDebugValue,
+  lazy,
+  memo,
   version,
 };
