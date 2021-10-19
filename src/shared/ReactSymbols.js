@@ -28,7 +28,7 @@ export const REACT_LEGACY_HIDDEN_TYPE = Symbol.for('react.legacy_hidden');
 export function getIteratorFn(maybeIterable) {
   if (maybeIterable === null || typeof maybeIterable !== "object") return null;
 
-  maybeIterable = Symbol.iterator && maybeIterable[Symbol.iterator] || maybeIterable["@@iterator"];
+  const maybeIterator = Symbol.iterator && maybeIterable[Symbol.iterator] || maybeIterable["@@iterator"];
 
-  return typeof maybeIterable === "function" ? maybeIterable : null
+  return typeof maybeIterator === "function" ? maybeIterator : null
 };

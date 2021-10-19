@@ -2,7 +2,7 @@
  * @source react/packages/react/src/ReactChildren.js
 */
 import { isValidElement, cloneAndReplaceKey } from './ReactElement';
-import { formatProdErrorMessage } from './../utils/index';
+import { formatProdErrorMessage, getElementKey, escapeUserProvidedKey, } from './../utils/index';
 import {
   REACT_ELEMENT_TYPE,
   REACT_PORTAL_TYPE,
@@ -10,7 +10,7 @@ import {
 } from './../shared/ReactSymbols';
 
 function mapIntoArray(children, array, escapedPrefix, nameSoFar, callback) {
-  let type = typeof children;
+  const type = typeof children;
 
   if (type === 'undefined' || type === 'boolean') children = null;
 
@@ -85,14 +85,7 @@ function mapIntoArray(children, array, escapedPrefix, nameSoFar, callback) {
     } else if (child === "object") {
       const childrenString = "" + children;
 
-      throw Error(
-        formatProdErrorMessage(
-          31,
-          childrenString === "[object Object]" ?
-            "object with keys {" + Object.keys(children).join(", ") + "}" :
-            childrenString
-        )
-      );
+      throw Error(formatProdErrorMessage(31, childrenString === "[object Object]" ? "object with keys {" + Object.keys(children).join(", ") + "}" : childrenString));
     }
   };
 
@@ -114,11 +107,13 @@ function mapChildren(children, func, context) {
 
 export const Children = {
   map: mapChildren,
+
   forEach: function (children, forEachFunc, forEachContext) {
     mapChildren(children, function () {
       forEachFunc.apply(this, arguments)
     }, forEachContext);
   },
+
   count: function (children) {
     let n = 0;
 
@@ -126,10 +121,11 @@ export const Children = {
 
     return n;
   },
+
   toArray: function (children) {
     return mapChildren(children, child => child) || [];
   },
-  
+
   only: function (children) {
     if (!isValidElement(children)) throw Error(formatProdErrorMessage(143));
 

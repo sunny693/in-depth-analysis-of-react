@@ -1,10 +1,4 @@
-import {
-  escapeUserProvidedKey,
-  formatProdErrorMessage,
-  getElementKey,
-  compare,
-  getCurrentTime,
-} from './../utils/index';
+import { compare, getCurrentTime } from './../utils/index';
 import {
   Fragment,
   StrictMode,
@@ -342,7 +336,6 @@ if (typeof window === "undefined" || typeof MessageChannel !== "function") {
 };
 
 export const __SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED = {
-  assign: Object.assign,
   ReactCurrentDispatcher,
   ReactCurrentOwner,
   ReactCurrentBatchConfig: {

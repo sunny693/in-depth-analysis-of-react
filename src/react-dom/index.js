@@ -1,6 +1,5 @@
 import {
   formatProdErrorMessage,
-  getIntrinsicNamespace,
   getToStringValue,
   getChildNamespace,
   ownProperty,
@@ -25,8 +24,33 @@ import {
   REACT_LEGACY_HIDDEN_TYPE,
   getIteratorFn,
 } from './../shared/ReactSymbols';
+import {
+  render,
+  hydrate,
+  findDOMNode,
+  unstable_createRoot,
+} from './ReactDOMLegacy';
 import { objectIs } from './../utils/polyfill';
-export { version } from './../shared/version';
+import { isValidContainer } from './ReactDOMRoot';
+import { version } from './../shared/version';
+import { createFiber } from './ReactFiber';
+import { initializeUpdateQueue } from './ReactUpdateQueue';
+import {
+  internalContainerInstanceKey,
+  internalInstanceKey,
+  internalPropsKey,
+  internalEventHandlersKey,
+} from './ReactDOMComponentTree';
+import { 
+  isContextProvider,
+  didPerformWorkStackCursor,
+  emptyContextObject,
+  contextStackCursor,  
+} from './ReactFiberContext';
+import { createCursor, pop, push } from './ReactFiberStack';
+import { ReactDOMBlockingRoot  } from './ReactDOMRoot';
+import { registerDirectEvent  } from './EventRegistry';
+import { completeWork } from './ReactFiberCompleteWork';
 
 function getEventCharCode(nativeEvent) {
   var keyCode = nativeEvent.keyCode;
@@ -97,19 +121,9 @@ function getHighestPriorityLane(lanes) {
   return lanes & -lanes
 }
 
-function createLaneMap(initial) {
-  for (var laneMap = [], i = 0; 31 > i; i++) laneMap.push(initial);
-  return laneMap
-}
-
 function registerTwoPhaseEvent(registrationName, dependencies) {
   registerDirectEvent(registrationName, dependencies);
   registerDirectEvent(registrationName + "Capture", dependencies)
-}
-
-function registerDirectEvent(registrationName, dependencies) {
-  registrationNameDependencies[registrationName] = dependencies;
-  for (registrationName = 0; registrationName < dependencies.length; registrationName++) allNativeEvents.add(dependencies[registrationName])
 }
 
 function isAttributeNameSafe(attributeName) {
@@ -1424,14 +1438,6 @@ function listenToNonDelegatedEvent(domEventName, targetElement) {
   listenerSet.has(listenerSetKey) || (addTrappedEventListener(targetElement, domEventName, 2, false), listenerSet.add(listenerSetKey))
 }
 
-function listenToAllSupportedEvents(rootContainerElement) {
-  rootContainerElement[listeningMarker] || (rootContainerElement[listeningMarker] = true, allNativeEvents.forEach(function (domEventName) {
-    nonDelegatedEvents.has(domEventName) ||
-      listenToNativeEvent(domEventName, false, rootContainerElement, null);
-    listenToNativeEvent(domEventName, true, rootContainerElement, null)
-  }))
-}
-
 function listenToNativeEvent(domEventName, isCapturePhaseListener, rootContainerElement, targetElement) {
   var eventSystemFlags = 4 < arguments.length && undefined !== arguments[4] ? arguments[4] : 0,
     target = rootContainerElement;
@@ -1888,23 +1894,6 @@ function getEventListenerSet(node) {
   return elementListenerSet
 }
 
-function createCursor(defaultValue) {
-  return {
-    current: defaultValue
-  }
-}
-
-function pop(cursor, fiber) {
-  0 > index || (cursor.current = valueStack[index],
-    valueStack[index] = null, index--)
-}
-
-function push(cursor, value, fiber) {
-  index++;
-  valueStack[index] = cursor.current;
-  cursor.current = value
-}
-
 function getMaskedContext(workInProgress, unmaskedContext) {
   var contextTypes = workInProgress.type.contextTypes;
   if (!contextTypes) return emptyContextObject;
@@ -1916,11 +1905,6 @@ function getMaskedContext(workInProgress, unmaskedContext) {
     unmaskedContext[key];
   instance && (workInProgress = workInProgress.stateNode, workInProgress.__reactInternalMemoizedUnmaskedChildContext = unmaskedContext, workInProgress.__reactInternalMemoizedMaskedChildContext = context);
   return context
-}
-
-function isContextProvider(type) {
-  type = type.childContextTypes;
-  return null !== type && undefined !== type
 }
 
 function pushTopLevelContextObject(fiber, context, didChange) {
@@ -2091,18 +2075,6 @@ function readContext(context, observedBits) {
     } else lastContextDependency = lastContextDependency.next = observedBits
   }
   return context._currentValue
-}
-
-function initializeUpdateQueue(fiber) {
-  fiber.updateQueue = {
-    baseState: fiber.memoizedState,
-    firstBaseUpdate: null,
-    lastBaseUpdate: null,
-    shared: {
-      pending: null
-    },
-    effects: null
-  }
 }
 
 function cloneUpdateQueue(current, workInProgress) {
@@ -2302,8 +2274,7 @@ function checkShouldComponentUpdate(workInProgress, ctor, oldProps, newProps, ol
 
 function constructClassInstance(workInProgress, ctor, props) {
   var isLegacyContextConsumer = false,
-    unmaskedContext =
-      emptyContextObject;
+    unmaskedContext = emptyContextObject;
   var context = ctor.contextType;
   "object" === typeof context && null !== context ? context = readContext(context) : (unmaskedContext = isContextProvider(ctor) ? previousContext : contextStackCursor.current, isLegacyContextConsumer = ctor.contextTypes, context = (isLegacyContextConsumer = null !== isLegacyContextConsumer && undefined !== isLegacyContextConsumer) ? getMaskedContext(workInProgress, unmaskedContext) : emptyContextObject);
   ctor = new ctor(props, context);
@@ -2705,7 +2676,10 @@ function pushHostContainer(fiber, nextRootInstance) {
   push(contextStackCursor$1, nextRootInstance)
 }
 
-function popHostContainer(fiber) {
+/**
+ * 内部导出
+*/
+export function popHostContainer(fiber) {
   pop(contextStackCursor$1);
   pop(contextFiberStackCursor);
   pop(rootInstanceStackCursor)
@@ -2747,8 +2721,7 @@ function findFirstSuspended(row) {
 }
 
 function deleteHydratableInstance(returnFiber, instance) {
-  var fiber =
-    createFiber(5, null, null, 0);
+  var fiber = createFiber(5, null, null, 0);
   fiber.elementType = "DELETED";
   fiber.type = "DELETED";
   fiber.stateNode = instance;
@@ -2803,8 +2776,10 @@ function popToNextHostParent(fiber) {
   for (fiber = fiber.return; null !== fiber && 5 !== fiber.tag && 3 !== fiber.tag && 13 !== fiber.tag;) fiber = fiber.return;
   hydrationParentFiber = fiber
 }
-
-function popHydrationState(fiber) {
+/**
+ * 内部导出
+*/
+export function popHydrationState(fiber) {
   if (fiber !== hydrationParentFiber) return false;
   if (!isHydrating) return popToNextHostParent(fiber), isHydrating = true, false;
   var type = fiber.type;
@@ -2842,8 +2817,10 @@ function resetHydrationState() {
   nextHydratableInstance = hydrationParentFiber = null;
   isHydrating = false
 }
-
-function resetWorkInProgressVersions() {
+/**
+ * 内部导出
+*/
+export function resetWorkInProgressVersions() {
   for (var i = 0; i < workInProgressSources.length; i++) workInProgressSources[i]._workInProgressVersionPrimary = null;
   workInProgressSources.length = 0
 }
@@ -3734,305 +3711,6 @@ function cutOffTailIfNeeded(renderState, hasRenderedATailFallback) {
       for (var lastTailNode$91 = null; null !== lastTailNode;) null !== lastTailNode.alternate && (lastTailNode$91 = lastTailNode), lastTailNode = lastTailNode.sibling;
       null === lastTailNode$91 ? hasRenderedATailFallback || null === renderState.tail ? renderState.tail = null : renderState.tail.sibling = null : lastTailNode$91.sibling = null
   }
-}
-
-function completeWork(current, workInProgress, renderLanes) {
-  var newProps = workInProgress.pendingProps;
-  switch (workInProgress.tag) {
-    case 2:
-    case 16:
-    case 15:
-    case 0:
-    case 11:
-    case 7:
-    case 8:
-    case 12:
-    case 9:
-    case 14:
-      return null;
-    case 1:
-      return isContextProvider(workInProgress.type) && (pop(didPerformWorkStackCursor), pop(contextStackCursor)), null;
-    case 3:
-      popHostContainer();
-      pop(didPerformWorkStackCursor);
-      pop(contextStackCursor);
-      resetWorkInProgressVersions();
-      newProps = workInProgress.stateNode;
-      newProps.pendingContext && (newProps.context = newProps.pendingContext, newProps.pendingContext = null);
-      if (null === current || null === current.child) popHydrationState(workInProgress) ?
-        workInProgress.flags |= 4 : newProps.hydrate || (workInProgress.flags |= 256);
-      updateHostContainer(workInProgress);
-      return null;
-    case 5:
-      popHostContext(workInProgress);
-      var rootContainerInstance = requiredContext(rootInstanceStackCursor.current);
-      renderLanes = workInProgress.type;
-      if (null !== current && null != workInProgress.stateNode) updateHostComponent$1(current, workInProgress, renderLanes, newProps, rootContainerInstance), current.ref !== workInProgress.ref && (workInProgress.flags |= 128);
-      else {
-        if (!newProps) {
-          if (null === workInProgress.stateNode) throw Error(formatProdErrorMessage(166));
-          return null
-        }
-        current = requiredContext(contextStackCursor$1.current);
-        if (popHydrationState(workInProgress)) {
-          newProps = workInProgress.stateNode;
-          renderLanes = workInProgress.type;
-          var props = workInProgress.memoizedProps;
-          newProps[internalInstanceKey] = workInProgress;
-          newProps[internalPropsKey] = props;
-          switch (renderLanes) {
-            case "dialog":
-              listenToNonDelegatedEvent("cancel", newProps);
-              listenToNonDelegatedEvent("close", newProps);
-              break;
-            case "iframe":
-            case "object":
-            case "embed":
-              listenToNonDelegatedEvent("load", newProps);
-              break;
-            case "video":
-            case "audio":
-              for (current = 0; current < mediaEventTypes.length; current++) listenToNonDelegatedEvent(mediaEventTypes[current], newProps);
-              break;
-            case "source":
-              listenToNonDelegatedEvent("error", newProps);
-              break;
-            case "img":
-            case "image":
-            case "link":
-              listenToNonDelegatedEvent("error", newProps);
-              listenToNonDelegatedEvent("load", newProps);
-              break;
-            case "details":
-              listenToNonDelegatedEvent("toggle", newProps);
-              break;
-            case "input":
-              initWrapperState(newProps, props);
-              listenToNonDelegatedEvent("invalid", newProps);
-              break;
-            case "select":
-              newProps._wrapperState = {
-                wasMultiple: !!props.multiple
-              };
-              listenToNonDelegatedEvent("invalid", newProps);
-              break;
-            case "textarea":
-              initWrapperState$2(newProps, props), listenToNonDelegatedEvent("invalid", newProps)
-          }
-          assertValidProps(renderLanes, props);
-          current = null;
-          for (var propKey in props) props.hasOwnProperty(propKey) && (rootContainerInstance = props[propKey], "children" === propKey ? "string" === typeof rootContainerInstance ? newProps.textContent !== rootContainerInstance && (current = ["children", rootContainerInstance]) :
-            "number" === typeof rootContainerInstance && newProps.textContent !== "" + rootContainerInstance && (current = ["children", "" + rootContainerInstance]) : registrationNameDependencies.hasOwnProperty(propKey) && null != rootContainerInstance && "onScroll" === propKey && listenToNonDelegatedEvent("scroll", newProps));
-          switch (renderLanes) {
-            case "input":
-              track(newProps);
-              postMountWrapper(newProps, props, true);
-              break;
-            case "textarea":
-              track(newProps);
-              postMountWrapper$3(newProps);
-              break;
-            case "select":
-            case "option":
-              break;
-            default:
-              "function" ===
-                typeof props.onClick && (newProps.onclick = noop)
-          }
-          newProps = current;
-          workInProgress.updateQueue = newProps;
-          null !== newProps && (workInProgress.flags |= 4)
-        } else {
-          propKey = 9 === rootContainerInstance.nodeType ? rootContainerInstance : rootContainerInstance.ownerDocument;
-          "http://www.w3.org/1999/xhtml" === current && (current = getIntrinsicNamespace(renderLanes));
-          "http://www.w3.org/1999/xhtml" === current ? "script" === renderLanes ? (current = propKey.createElement("div"), current.innerHTML = "<script>\x3c/script>", current = current.removeChild(current.firstChild)) :
-            "string" === typeof newProps.is ? current = propKey.createElement(renderLanes, {
-              is: newProps.is
-            }) : (current = propKey.createElement(renderLanes), "select" === renderLanes && (propKey = current, newProps.multiple ? propKey.multiple = true : newProps.size && (propKey.size = newProps.size))) : current = propKey.createElementNS(current, renderLanes);
-          current[internalInstanceKey] = workInProgress;
-          current[internalPropsKey] = newProps;
-          appendAllChildren(current, workInProgress, false, false);
-          workInProgress.stateNode = current;
-          propKey = isCustomComponent(renderLanes,
-            newProps);
-          switch (renderLanes) {
-            case "dialog":
-              listenToNonDelegatedEvent("cancel", current);
-              listenToNonDelegatedEvent("close", current);
-              rootContainerInstance = newProps;
-              break;
-            case "iframe":
-            case "object":
-            case "embed":
-              listenToNonDelegatedEvent("load", current);
-              rootContainerInstance = newProps;
-              break;
-            case "video":
-            case "audio":
-              for (rootContainerInstance = 0; rootContainerInstance < mediaEventTypes.length; rootContainerInstance++) listenToNonDelegatedEvent(mediaEventTypes[rootContainerInstance], current);
-              rootContainerInstance =
-                newProps;
-              break;
-            case "source":
-              listenToNonDelegatedEvent("error", current);
-              rootContainerInstance = newProps;
-              break;
-            case "img":
-            case "image":
-            case "link":
-              listenToNonDelegatedEvent("error", current);
-              listenToNonDelegatedEvent("load", current);
-              rootContainerInstance = newProps;
-              break;
-            case "details":
-              listenToNonDelegatedEvent("toggle", current);
-              rootContainerInstance = newProps;
-              break;
-            case "input":
-              initWrapperState(current, newProps);
-              rootContainerInstance = getHostProps(current, newProps);
-              listenToNonDelegatedEvent("invalid", current);
-              break;
-            case "option":
-              rootContainerInstance = getHostProps$1(current, newProps);
-              break;
-            case "select":
-              current._wrapperState = {
-                wasMultiple: !!newProps.multiple
-              };
-              rootContainerInstance = Object.assign({}, newProps, {
-                value: undefined
-              });
-              listenToNonDelegatedEvent("invalid", current);
-              break;
-            case "textarea":
-              initWrapperState$2(current, newProps);
-              rootContainerInstance = getHostProps$3(current, newProps);
-              listenToNonDelegatedEvent("invalid", current);
-              break;
-            default:
-              rootContainerInstance = newProps
-          }
-          assertValidProps(renderLanes, rootContainerInstance);
-          var nextProps = rootContainerInstance;
-          for (props in nextProps)
-            if (nextProps.hasOwnProperty(props)) {
-              var nextProp = nextProps[props];
-              "style" === props ? setValueForStyles(current, nextProp) : "dangerouslySetInnerHTML" === props ? (nextProp = nextProp ? nextProp.__html : undefined, null != nextProp && setInnerHTML(current, nextProp)) : "children" === props ? "string" === typeof nextProp ? ("textarea" !== renderLanes || "" !== nextProp) && setTextContent(current, nextProp) : "number" === typeof nextProp && setTextContent(current, "" + nextProp) : "suppressContentEditableWarning" !==
-                props && "suppressHydrationWarning" !== props && "autoFocus" !== props && (registrationNameDependencies.hasOwnProperty(props) ? null != nextProp && "onScroll" === props && listenToNonDelegatedEvent("scroll", current) : null != nextProp && setValueForProperty(current, props, nextProp, propKey))
-            }
-          switch (renderLanes) {
-            case "input":
-              track(current);
-              postMountWrapper(current, newProps, false);
-              break;
-            case "textarea":
-              track(current);
-              postMountWrapper$3(current);
-              break;
-            case "option":
-              null != newProps.value && current.setAttribute("value", "" + getToStringValue(newProps.value));
-              break;
-            case "select":
-              current.multiple = !!newProps.multiple;
-              props = newProps.value;
-              null != props ? updateOptions(current, !!newProps.multiple, props, false) : null != newProps.defaultValue && updateOptions(current, !!newProps.multiple, newProps.defaultValue, true);
-              break;
-            default:
-              "function" === typeof rootContainerInstance.onClick && (current.onclick = noop)
-          }
-          shouldAutoFocusHostComponent(renderLanes, newProps) && (workInProgress.flags |= 4)
-        }
-        null !== workInProgress.ref && (workInProgress.flags |= 128)
-      }
-      return null;
-    case 6:
-      if (current && null != workInProgress.stateNode) updateHostText$1(current,
-        workInProgress, current.memoizedProps, newProps);
-      else {
-        if ("string" !== typeof newProps && null === workInProgress.stateNode) throw Error(formatProdErrorMessage(166));
-        renderLanes = requiredContext(rootInstanceStackCursor.current);
-        requiredContext(contextStackCursor$1.current);
-        popHydrationState(workInProgress) ? (newProps = workInProgress.stateNode, renderLanes = workInProgress.memoizedProps, newProps[internalInstanceKey] = workInProgress, newProps.nodeValue !== renderLanes && (workInProgress.flags |= 4)) : (newProps = (9 === renderLanes.nodeType ?
-          renderLanes : renderLanes.ownerDocument).createTextNode(newProps), newProps[internalInstanceKey] = workInProgress, workInProgress.stateNode = newProps)
-      }
-      return null;
-    case 13:
-      pop(suspenseStackCursor);
-      newProps = workInProgress.memoizedState;
-      if (null !== newProps && null !== newProps.dehydrated) {
-        if (null === current) {
-          if (!popHydrationState(workInProgress)) throw Error(formatProdErrorMessage(318));
-          newProps = workInProgress.memoizedState;
-          newProps = null !== newProps ? newProps.dehydrated : null;
-          if (!newProps) throw Error(formatProdErrorMessage(317));
-          newProps[internalInstanceKey] = workInProgress
-        } else resetHydrationState(), 0 === (workInProgress.flags & 64) && (workInProgress.memoizedState = null), workInProgress.flags |= 4;
-        return null
-      }
-      if (0 !== (workInProgress.flags & 64)) return workInProgress.lanes = renderLanes, workInProgress;
-      newProps = null !== newProps;
-      renderLanes = false;
-      null === current ? undefined !== workInProgress.memoizedProps.fallback && popHydrationState(workInProgress) : renderLanes = null !== current.memoizedState;
-      newProps && !renderLanes && 0 !== (workInProgress.mode & 2) && (null ===
-        current && true !== workInProgress.memoizedProps.unstable_avoidThisFallback || 0 !== (suspenseStackCursor.current & 1) ? 0 === workInProgressRootExitStatus && (workInProgressRootExitStatus = 3) : renderDidSuspendDelayIfPossible());
-      if (newProps || renderLanes) workInProgress.flags |= 4;
-      return null;
-    case 4:
-      return popHostContainer(), updateHostContainer(workInProgress), null === current && listenToAllSupportedEvents(workInProgress.stateNode.containerInfo), null;
-    case 10:
-      return popProvider(workInProgress), null;
-    case 17:
-      return isContextProvider(workInProgress.type) &&
-        (pop(didPerformWorkStackCursor), pop(contextStackCursor)), null;
-    case 19:
-      pop(suspenseStackCursor);
-      newProps = workInProgress.memoizedState;
-      if (null === newProps) return null;
-      props = 0 !== (workInProgress.flags & 64);
-      propKey = newProps.rendering;
-      if (null === propKey)
-        if (props) cutOffTailIfNeeded(newProps, false);
-        else {
-          if (0 !== workInProgressRootExitStatus || null !== current && 0 !== (current.flags & 64))
-            for (current = workInProgress.child; null !== current;) {
-              propKey = findFirstSuspended(current);
-              if (null !== propKey) {
-                workInProgress.flags |= 64;
-                cutOffTailIfNeeded(newProps, false);
-                props = propKey.updateQueue;
-                null !== props && (workInProgress.updateQueue = props, workInProgress.flags |= 4);
-                null === newProps.lastEffect && (workInProgress.firstEffect = null);
-                workInProgress.lastEffect = newProps.lastEffect;
-                newProps = renderLanes;
-                for (renderLanes = workInProgress.child; null !== renderLanes;) props = renderLanes, current = newProps, props.flags &= 2, props.nextEffect = null, props.firstEffect = null, props.lastEffect = null, propKey = props.alternate, null === propKey ? (props.childLanes = 0, props.lanes = current, props.child = null,
-                  props.memoizedProps = null, props.memoizedState = null, props.updateQueue = null, props.dependencies = null, props.stateNode = null) : (props.childLanes = propKey.childLanes, props.lanes = propKey.lanes, props.child = propKey.child, props.memoizedProps = propKey.memoizedProps, props.memoizedState = propKey.memoizedState, props.updateQueue = propKey.updateQueue, props.type = propKey.type, current = propKey.dependencies, props.dependencies = null === current ? null : {
-                    lanes: current.lanes,
-                    firstContext: current.firstContext
-                  }), renderLanes = renderLanes.sibling;
-                push(suspenseStackCursor, suspenseStackCursor.current & 1 | 2);
-                return workInProgress.child
-              }
-              current = current.sibling
-            }
-          null !== newProps.tail && now() > workInProgressRootRenderTargetTime && (workInProgress.flags |= 64, props = true, cutOffTailIfNeeded(newProps, false), workInProgress.lanes = 33554432)
-        } else {
-        if (!props)
-          if (current = findFirstSuspended(propKey), null !== current) {
-            if (workInProgress.flags |= 64, props = true, renderLanes = current.updateQueue, null !== renderLanes && (workInProgress.updateQueue = renderLanes, workInProgress.flags |= 4), cutOffTailIfNeeded(newProps, true), null === newProps.tail && "hidden" === newProps.tailMode && !propKey.alternate && !isHydrating) return workInProgress = workInProgress.lastEffect = newProps.lastEffect, null !== workInProgress && (workInProgress.nextEffect = null), null
-          } else 2 * now() - newProps.renderingStartTime > workInProgressRootRenderTargetTime && 1073741824 !== renderLanes && (workInProgress.flags |= 64, props = true, cutOffTailIfNeeded(newProps, false), workInProgress.lanes = 33554432);
-        newProps.isBackwards ? (propKey.sibling = workInProgress.child, workInProgress.child = propKey) :
-          (renderLanes = newProps.last, null !== renderLanes ? renderLanes.sibling = propKey : workInProgress.child = propKey, newProps.last = propKey)
-      }
-      return null !== newProps.tail ? (renderLanes = newProps.tail, newProps.rendering = renderLanes, newProps.tail = renderLanes.sibling, newProps.lastEffect = workInProgress.lastEffect, newProps.renderingStartTime = now(), renderLanes.sibling = null, workInProgress = suspenseStackCursor.current, push(suspenseStackCursor, props ? workInProgress & 1 | 2 : workInProgress & 1), renderLanes) : null;
-    case 22:
-      return null;
-    case 23:
-    case 24:
-      return subtreeRenderLanes =
-        subtreeRenderLanesCursor.current, pop(subtreeRenderLanesCursor), null !== current && null !== current.memoizedState !== (null !== workInProgress.memoizedState) && "unstable-defer-without-hiding" !== newProps.mode && (workInProgress.flags |= 4), null
-  }
-  throw Error(formatProdErrorMessage(156, workInProgress.tag));
 }
 
 function unwindWork(workInProgress, renderLanes) {
@@ -5502,22 +5180,6 @@ function resolveRetryWakeable(boundaryFiber, wakeable) {
   retryTimedOutBoundary(boundaryFiber, retryLane)
 }
 
-function FiberNode(tag, pendingProps, key, mode) {
-  this.tag = tag;
-  this.key = key;
-  this.sibling = this.child = this.return = this.stateNode = this.type = this.elementType = null;
-  this.index = 0;
-  this.ref = null;
-  this.pendingProps = pendingProps;
-  this.dependencies =
-    this.memoizedState = this.updateQueue = this.memoizedProps = null;
-  this.mode = mode;
-  this.flags = 0;
-  this.lastEffect = this.firstEffect = this.nextEffect = null;
-  this.childLanes = this.lanes = 0;
-  this.alternate = null
-}
-
 function shouldConstruct(Component) {
   Component = Component.prototype;
   return !(!Component || !Component.isReactComponent)
@@ -5648,23 +5310,6 @@ function createFiberFromPortal(portal, mode, lanes) {
   return mode
 }
 
-function FiberRootNode(containerInfo, tag, hydrate) {
-  this.tag = tag;
-  this.containerInfo = containerInfo;
-  this.finishedWork = this.pingCache = this.current = this.pendingChildren = null;
-  this.timeoutHandle = -1;
-  this.pendingContext = this.context = null;
-  this.hydrate = hydrate;
-  this.callbackNode = null;
-  this.callbackPriority = 0;
-  this.eventTimes = createLaneMap(0);
-  this.expirationTimes = createLaneMap(-1);
-  this.entangledLanes = this.finishedLanes = this.mutableReadLanes = this.expiredLanes = this.pingedLanes = this.suspendedLanes = this.pendingLanes =
-    0;
-  this.entanglements = createLaneMap(0);
-  this.mutableSourceEagerHydrationData = null
-}
-
 function createPortal(children, containerInfo, implementation) {
   var key = 3 < arguments.length && undefined !== arguments[3] ? arguments[3] : null;
   return {
@@ -5757,86 +5402,12 @@ function runWithPriority$2(priority, fn) {
 }
 
 function findHostInstanceByFiber(fiber) {
-  fiber =
-    findCurrentHostFiber(fiber);
+  fiber = findCurrentHostFiber(fiber);
   return null === fiber ? null : fiber.stateNode
 }
 
 function emptyFindFiberByHostInstance(instance) {
   return null
-}
-
-function ReactDOMRoot(container, options) {
-  this._internalRoot = createRootImpl(container, 2, options)
-}
-
-function ReactDOMBlockingRoot(container, tag, options) {
-  this._internalRoot = createRootImpl(container, tag, options)
-}
-
-function createRootImpl(container, tag, options) {
-  var mutableSources = null != options && null != options.hydrationOptions && options.hydrationOptions.mutableSources || null;
-  options =
-    new FiberRootNode(container, tag, null != options && true === options.hydrate);
-  tag = createFiber(3, null, null, 2 === tag ? 7 : 1 === tag ? 3 : 0);
-  options.current = tag;
-  tag.stateNode = options;
-  initializeUpdateQueue(tag);
-  container[internalContainerInstanceKey] = options.current;
-  listenToAllSupportedEvents(8 === container.nodeType ? container.parentNode : container);
-  if (mutableSources)
-    for (container = 0; container < mutableSources.length; container++) {
-      tag = mutableSources[container];
-      var getVersion = tag._getVersion;
-      getVersion = getVersion(tag._source);
-      null == options.mutableSourceEagerHydrationData ? options.mutableSourceEagerHydrationData = [tag, getVersion] : options.mutableSourceEagerHydrationData.push(tag, getVersion)
-    }
-  return options
-}
-
-function isValidContainer(node) {
-  return !(!node || 1 !== node.nodeType && 9 !== node.nodeType && 11 !== node.nodeType && (8 !== node.nodeType || " react-mount-point-unstable " !== node.nodeValue))
-}
-
-function legacyCreateRootFromDOMContainer(container, forceHydrate) {
-  forceHydrate || (forceHydrate = container ? 9 === container.nodeType ? container.documentElement :
-    container.firstChild : null, forceHydrate = !(!forceHydrate || 1 !== forceHydrate.nodeType || !forceHydrate.hasAttribute("data-reactroot")));
-  if (!forceHydrate)
-    for (var rootSibling; rootSibling = container.lastChild;) container.removeChild(rootSibling);
-  return new ReactDOMBlockingRoot(container, 0, forceHydrate ? {
-    hydrate: true
-  } : undefined)
-}
-
-function legacyRenderSubtreeIntoContainer(parentComponent, children, container, forceHydrate, callback) {
-  var root = container._reactRootContainer;
-  if (root) {
-    var fiberRoot = root._internalRoot;
-    if ("function" ===
-      typeof callback) {
-      var originalCallback$132 = callback;
-      callback = function () {
-        var instance = getPublicRootInstance(fiberRoot);
-        originalCallback$132.call(instance)
-      }
-    }
-    updateContainer(children, fiberRoot, parentComponent, callback)
-  } else {
-    root = container._reactRootContainer = legacyCreateRootFromDOMContainer(container, forceHydrate);
-    fiberRoot = root._internalRoot;
-    if ("function" === typeof callback) {
-      var originalCallback = callback;
-      callback = function () {
-        var instance = getPublicRootInstance(fiberRoot);
-        originalCallback.call(instance)
-      }
-    }
-    unbatchedUpdates(function () {
-      updateContainer(children,
-        fiberRoot, parentComponent, callback)
-    })
-  }
-  return getPublicRootInstance(fiberRoot)
 }
 
 function createPortal$1(children, container) {
@@ -5845,10 +5416,8 @@ function createPortal$1(children, container) {
   return createPortal(children, container, null, key)
 }
 if (!React) throw Error(formatProdErrorMessage(227));
-var allNativeEvents = new Set,
-  registrationNameDependencies = {},
-  canUseDOM = !("undefined" === typeof window || "undefined" === typeof window.document ||
-    "undefined" === typeof window.document.createElement),
+var canUseDOM = !("undefined" === typeof window || "undefined" === typeof window.document ||
+  "undefined" === typeof window.document.createElement),
   VALID_ATTRIBUTE_NAME_REGEX = /^[:A-Z_a-z\u00C0-\u00D6\u00D8-\u00F6\u00F8-\u02FF\u0370-\u037D\u037F-\u1FFF\u200C-\u200D\u2070-\u218F\u2C00-\u2FEF\u3001-\uD7FF\uF900-\uFDCF\uFDF0-\uFFFD][:A-Z_a-z\u00C0-\u00D6\u00D8-\u00F6\u00F8-\u02FF\u0370-\u037D\u037F-\u1FFF\u200C-\u200D\u2070-\u218F\u2C00-\u2FEF\u3001-\uD7FF\uF900-\uFDCF\uFDF0-\uFFFD\-.0-9\u00B7\u0300-\u036F\u203F-\u2040]*$/,
   hasOwnProperty = Object.prototype.hasOwnProperty,
   illegalAttributeNameCache = {},
@@ -6363,23 +5932,12 @@ registerTwoPhaseEvent("onCompositionStart", "compositionstart focusout keydown k
 registerTwoPhaseEvent("onCompositionUpdate", "compositionupdate focusout keydown keypress keyup mousedown".split(" "));
 var mediaEventTypes = "abort canplay canplaythrough durationchange emptied encrypted ended error loadeddata loadedmetadata loadstart pause play playing progress ratechange seeked seeking stalled suspend timeupdate volumechange waiting".split(" "),
   nonDelegatedEvents = new Set("cancel close invalid load scroll toggle".split(" ").concat(mediaEventTypes)),
-  listeningMarker = "_reactListening" + Math.random().toString(36).slice(2),
   eventsEnabled = null,
   selectionInformation = null,
   scheduleTimeout = "function" === typeof setTimeout ?
     setTimeout : undefined,
   cancelTimeout = "function" === typeof clearTimeout ? clearTimeout : undefined,
   clientId = 0,
-  randomKey = Math.random().toString(36).slice(2),
-  internalInstanceKey = "__reactFiber$" + randomKey,
-  internalPropsKey = "__reactProps$" + randomKey,
-  internalContainerInstanceKey = "__reactContainer$" + randomKey,
-  internalEventHandlersKey = "__reactEvents$" + randomKey,
-  valueStack = [],
-  index = -1,
-  emptyContextObject = {},
-  contextStackCursor = createCursor(emptyContextObject),
-  didPerformWorkStackCursor = createCursor(false),
   previousContext = emptyContextObject,
   rendererID = null,
   injectedHook = null,
@@ -6667,8 +6225,11 @@ var appendAllChildren = function (parent, workInProgress, needsVisibilityToggle,
       needsVisibilityToggle.sibling
   }
 };
-var updateHostContainer = function (workInProgress) { };
-var updateHostComponent$1 = function (current, workInProgress, type, newProps, rootContainerInstance) {
+
+/**
+ * 内部导出
+*/
+export var updateHostComponent$1 = function (current, workInProgress, type, newProps, rootContainerInstance) {
   var oldProps = current.memoizedProps;
   if (oldProps !== newProps) {
     current = workInProgress.stateNode;
@@ -6733,9 +6294,7 @@ var updateHostComponent$1 = function (current, workInProgress, type, newProps, r
     if (workInProgress.updateQueue = JSCompiler_inline_result) workInProgress.flags |= 4
   }
 };
-var updateHostText$1 = function (current, workInProgress, oldText, newText) {
-  oldText !== newText && (workInProgress.flags |= 4)
-};
+
 var PossiblyWeakMap = "function" === typeof WeakMap ? WeakMap : Map,
   PossiblyWeakSet = "function" ===
     typeof WeakSet ? WeakSet : Set,
@@ -7033,20 +6592,7 @@ var beginWork$1 = function (current, workInProgress, renderLanes) {
   }
   throw Error(formatProdErrorMessage(156, workInProgress.tag));
 };
-var createFiber = function (tag,
-  pendingProps, key, mode) {
-  return new FiberNode(tag, pendingProps, key, mode)
-};
-ReactDOMRoot.prototype.render = ReactDOMBlockingRoot.prototype.render = function (children) {
-  updateContainer(children, this._internalRoot, null, null)
-};
-ReactDOMRoot.prototype.unmount = ReactDOMBlockingRoot.prototype.unmount = function () {
-  var root = this._internalRoot,
-    container = root.containerInfo;
-  updateContainer(null, root, null, function () {
-    container[internalContainerInstanceKey] = null
-  })
-};
+
 var attemptSynchronousHydration = function (fiber) {
   switch (fiber.tag) {
     case 3:
@@ -7203,31 +6749,7 @@ export {
   Internals as __SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED
 };
 
-export const findDOMNode = function (componentOrElement) {
-  if (null == componentOrElement) return null;
-  if (1 === componentOrElement.nodeType) return componentOrElement;
-  var fiber = componentOrElement._reactInternals;
-  if (undefined === fiber) {
-    if ("function" === typeof componentOrElement.render) throw Error(formatProdErrorMessage(188));
-    throw Error(formatProdErrorMessage(268, Object.keys(componentOrElement)));
-  }
-  componentOrElement = findCurrentHostFiber(fiber);
-  componentOrElement = null === componentOrElement ?
-    null : componentOrElement.stateNode;
-  return componentOrElement
-};
-
 export { flushSync };
-
-export const hydrate = function (element, container, callback) {
-  if (!isValidContainer(container)) throw Error(formatProdErrorMessage(200));
-  return legacyRenderSubtreeIntoContainer(null, element, container, true, callback)
-};
-
-export const render = function (element, container, callback) {
-  if (!isValidContainer(container)) throw Error(formatProdErrorMessage(200));
-  return legacyRenderSubtreeIntoContainer(null, element, container, false, callback)
-};
 
 export const unmountComponentAtNode = function (container) {
   if (!isValidContainer(container)) throw Error(formatProdErrorMessage(40));
@@ -7246,10 +6768,7 @@ export const unstable_createBlockingRoot = function (container, options) {
 export const unstable_createPortal = function (children, container) {
   return createPortal$1(children, container, 2 < arguments.length && undefined !== arguments[2] ? arguments[2] : null)
 };
-export const unstable_createRoot = function (container, options) {
-  if (!isValidContainer(container)) throw Error(formatProdErrorMessage(299));
-  return new ReactDOMRoot(container, options)
-};
+
 export const unstable_flushControlled = function (fn) {
   var prevExecutionContext = executionContext;
   executionContext |= 1;
@@ -7272,6 +6791,7 @@ export const unstable_scheduleHydration = function (target) {
   if (target) {
     var schedulerPriority = unstable_getCurrentPriorityLevel(),
       updateLanePriority = getCurrentUpdatePriority();
+
     target = {
       blockedOn: null,
       target: target,
@@ -7284,3 +6804,57 @@ export const unstable_scheduleHydration = function (target) {
     0 === updateLanePriority && attemptExplicitHydrationTarget(target)
   }
 };
+
+function legacyCreateRootFromDOMContainer(container, forceHydrate) {
+  if (forceHydrate) {
+    forceHydrate = container ? 9 === container.nodeType ? container.documentElement : container.firstChild : null, forceHydrate = !(!forceHydrate || 1 !== forceHydrate.nodeType || !forceHydrate.hasAttribute("data-reactroot"));
+  }
+
+  if (!forceHydrate) for (var rootSibling; rootSibling = container.lastChild;) container.removeChild(rootSibling);
+
+  return new ReactDOMBlockingRoot(container, 0, forceHydrate ? { hydrate: true } : undefined)
+}
+/**
+ * 内部导出
+*/
+export function legacyRenderSubtreeIntoContainer(parentComponent, children, container, forceHydrate, callback) {
+  let root = container._reactRootContainer;
+  let fiberRoot;
+
+  if (!root) {
+    root = container._reactRootContainer = legacyCreateRootFromDOMContainer(container, forceHydrate);
+    fiberRoot = root._internalRoot;
+
+    if (typeof callback === 'function') {
+      const originalCallback = callback;
+
+      callback = function () {
+        const instance = getPublicRootInstance(fiberRoot);
+        originalCallback.call(instance);
+      };
+    }
+
+    unbatchedUpdates(() => { updateContainer(children, fiberRoot, parentComponent, callback); });
+  } else {
+    fiberRoot = root._internalRoot;
+    if (typeof callback === 'function') {
+      const originalCallback = callback;
+      callback = function () {
+        const instance = getPublicRootInstance(fiberRoot);
+        originalCallback.call(instance);
+      };
+    }
+
+    updateContainer(children, fiberRoot, parentComponent, callback);
+  }
+
+  return getPublicRootInstance(fiberRoot);
+}
+
+export {
+  render,
+  hydrate,
+  findDOMNode,
+  unstable_createRoot,
+  version,
+}

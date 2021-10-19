@@ -23,16 +23,16 @@
     const { createElement, cloneElement, useState, StrictMode } = React;
 
     class ClassButton extends React.Component {
-      constructor(props,context,updater) {
+      constructor(props, context, updater) {
         super(props);
         this.state = { liked: false };
       }
 
       render() {
-        const {children} = this.props;
+        const { children } = this.props;
         // if (this.state.liked) return 'You liked this.';
 
-        return <button onClick={() => this.setState(kk =>{ kk.liked = !kk.liked; } )}>
+        return <button onClick={() => this.setState(kk => { kk.liked = !kk.liked; })}>
           LIKE{children}---console
           {String(this.state.liked)}
         </button>;
@@ -60,35 +60,74 @@
     }
 
     function UlEle({ children }) {
-      const CloneE = cloneElement(<UlEle />,{prop:1},1);
+      const CloneE = cloneElement(<UlEle />, { prop: 1 }, 1);
       return <ul>
-        <children/>
+        <children />
       </ul>
     }
 
-    function LikeButton() {
+    /*****************************SPLIT***************************************/
+    function Main() {
       const [count, setCount] = useState(0);
       const arr = ['one', 'two', 'three'];
 
       return <div onClick={() => setCount((count) => count + 1)}>
-        <StrictMode>
-          <TestCreateEle /><br />
-          Like {count}
-          <br />
-          <ClassButton  prop1 prop2={'a'}>
-            childkkk  
-          </ClassButton>
-          <UlEle>
-            <li>123</li>
-          </UlEle>
-        </StrictMode>
+        <TestCreateEle /><br />
+        Like {count}
+        <br />
+        <ClassButton prop1 prop2={'a'}>
+          childkkk
+        </ClassButton>
+        <UlEle>
+          <li>123</li>
+        </UlEle>
+
+        <hr />
+        <RadioGroup name="rate">
+          <RadioButton value="first">First</RadioButton>
+          <RadioButton value="second">
+            <div>123</div>
+            <div>456</div>
+            Second</RadioButton>
+          <RadioButton value="third">Third</RadioButton>
+        </RadioGroup>
       </div>
     }
 
+    /*****************************SPLIT***************************************/
+    class RadioGroup extends React.Component {
 
+      renderChildren() {
+        return React.Children.map(this.props.children, child => {
+          return React.cloneElement(child, {
+            name: this.props.name
+          });
+        })
+      }
+
+      render() {
+        return (
+          <div className="group">
+            {this.renderChildren()}
+          </div>
+        )
+      }
+    }
+
+    class RadioButton extends React.Component {
+      render() {
+        return (
+          <label>
+            <input type="radio" value={this.props.value} name={this.props.name} />
+            {this.props.children}
+          </label>
+        );
+      }
+    }
+
+    /*****************************SPLIT*********************************/
     const domContainer = document.querySelector('#like_button_container');
-
-    ReactDOM.render(<LikeButton />, domContainer);
+    ReactDOM.render(<Main />, domContainer);
   </script>
 </body>
 
